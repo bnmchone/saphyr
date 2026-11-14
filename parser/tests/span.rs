@@ -320,3 +320,47 @@ fn quoted_span_fix_keeps_invalid_trailing_content_rejected() {
         assert!(run_parser_and_deref_scalar_spans(input).is_err());
     }
 }
+
+#[test]
+fn block_clip_excludes_unterminated_trailing_empty_lines_at_content_indent() {
+    // YAML 1.2.2 section 8.1.1.2: clip preserves the final content break and
+    // excludes trailing empty lines. Indentation-only EOF must not add a
+    // second content break.
+    for style in ["|", ">", "|2", ">2"] {
+        for line_break in ["\n", "\r\n", "\r"] {
+            for (input, at) in [
+                (format!("foo: {style}{line_break}  bar{line_break}  "), 1),
+                (
+                    format!("outer:{line_break}  key: {style}{line_break}    bar{line_break}    "),
+                    2,
+                ),
+                (format!("? {style}{line_break}  bar{line_break}  "), 0),
+            ] {
+                let values = run_parser_and_deref_scalar_spans(&input).unwrap();
+                assert_eq!(
+                    values[at].0, "bar\n",
+                    "clip must exclude trailing empty EOF lines: {input:?}"
+                );
+                let from_str: Vec<_> = Parser::new_from_str(&input).collect();
+                let from_iter: Vec<_> = Parser::new_from_iter(input.chars()).collect();
+                assert_eq!(from_str, from_iter);
+            }
+        }
+    }
+}
+
+#[test]
+fn block_clip_retains_unterminated_nonempty_and_more_indented_final_content() {
+    for style in ["|", ">", "|2", ">2"] {
+        let input = format!("foo: {style}\n  bar");
+        assert_eq!(
+            run_parser_and_deref_scalar_spans(&input).unwrap()[1].0,
+            "bar\n"
+        );
+        let input = format!("foo: {style}\n  bar\n   ");
+        assert_eq!(
+            run_parser_and_deref_scalar_spans(&input).unwrap()[1].0,
+            "bar\n \n"
+        );
+    }
+}

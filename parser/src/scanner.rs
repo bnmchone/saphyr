@@ -1860,7 +1860,12 @@ impl<'input, T: Input> Scanner<'input, T> {
             // If we had reached an eof but the last character wasn't an end-of-line, check if the
             // last line was indented at least as the rest of the scalar, then we need to consider
             // there is a newline.
-            if self.input.next_is_z() && self.mark.col >= indent.max(1) {
+            if self.input.next_is_z()
+                && self.mark.col >= indent.max(1)
+                // Clip already retained a real final content break. An
+                // indentation-only EOF line must not add a trailing empty one.
+                && (chomping == Chomping::Keep || leading_break.is_empty())
+            {
                 string.push('\n');
             }
         }
