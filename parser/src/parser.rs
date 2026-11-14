@@ -178,6 +178,8 @@ pub struct Parser<'input, T: Input> {
     stream_end_emitted: bool,
     /// Make tags global across all documents.
     keep_tags: bool,
+    /// Explicit version directive on the most recently started document.
+    document_version: Option<(u32, u32)>,
 }
 
 impl<T: Input + Clone> Clone for Parser<'_, T> {
@@ -193,6 +195,7 @@ impl<T: Input + Clone> Clone for Parser<'_, T> {
             tags: self.tags.clone(),
             stream_end_emitted: self.stream_end_emitted,
             keep_tags: self.keep_tags,
+            document_version: self.document_version,
         }
     }
 }
@@ -325,7 +328,20 @@ impl<'input, T: Input> Parser<'input, T> {
             tags: BTreeMap::new(),
             stream_end_emitted: false,
             keep_tags: false,
+            document_version: None,
         }
+    }
+
+    /// Return the explicit `%YAML` version of the most recently parsed document.
+    ///
+    /// Read this after a [`Event::DocumentStart`] event (including one obtained
+    /// through [`Self::peek`]). `None` means that document had no version
+    /// directive. Each new document resets the value, independently of
+    /// [`Self::keep_tags`]. This reports source metadata without changing the
+    /// parser's YAML grammar or scalar-resolution policy.
+    #[must_use]
+    pub fn document_version(&self) -> Option<(u32, u32)> {
+        self.document_version
     }
 
     /// Whether to keep tags across multiple documents when parsing.
@@ -506,8 +522,6 @@ impl<'input, T: Input> Parser<'input, T> {
                 recv.on_event(ev, span);
                 return Ok(());
             }
-            // clear anchors before a new document
-            self.anchors.clear();
             self.load_document(ev, span, recv)?;
             if !multi {
                 break;
@@ -707,11 +721,16 @@ impl<'input, T: Input> Parser<'input, T> {
     }
 
     fn parser_process_directives(&mut self) -> Result<(), ScanError> {
+        // Document scope belongs to the parser state machine, shared by the
+        // iterator, next_event and load APIs. Tag retention never retains anchors.
+        self.anchors.clear();
+        self.document_version = None;
         let mut version_directive_received = false;
         let mut tags = BTreeMap::new();
         loop {
             match self.peek_token()? {
-                Token(span, TokenType::VersionDirective(_, _)) => {
+                Token(span, TokenType::VersionDirective(major, minor)) => {
+                    let version = (*major, *minor);
                     // XXX parsing with warning according to spec
                     //if major != 1 || minor > 2 {
                     //    return Err(ScanError::new_str(tok.0,
@@ -724,6 +743,7 @@ impl<'input, T: Input> Parser<'input, T> {
                         ));
                     }
                     version_directive_received = true;
+                    self.document_version = Some(version);
                 }
                 Token(mark, TokenType::TagDirective(handle, prefix)) => {
                     if tags.contains_key(&**handle) {
