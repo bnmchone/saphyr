@@ -1812,8 +1812,9 @@ impl<'input, T: Input> Scanner<'input, T> {
             ));
         }
 
+        // Preserve the original scalar start, including its header. The
+        // content cursor has already moved past indentation and modifiers.
         let mut line_buffer = String::with_capacity(100);
-        let start_mark = self.mark;
         while self.mark.col == indent && is_yaml_non_break(self.input.peek()) {
             if indent == 0 {
                 self.input.lookahead(4);

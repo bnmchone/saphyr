@@ -95,11 +95,11 @@ fn test_quoted() {
 fn test_literal() {
     assert_eq!(
         deref_pairs(&run_parser_and_deref_scalar_spans("foo: |\n  bar").unwrap()),
-        [("foo", "foo"), ("bar\n", "bar"),]
+        [("foo", "foo"), ("bar\n", "|\n  bar"),]
     );
     assert_eq!(
         deref_pairs(&run_parser_and_deref_scalar_spans("foo: |\n  bar\n  more").unwrap()),
-        [("foo", "foo"), ("bar\nmore\n", "bar\n  more"),]
+        [("foo", "foo"), ("bar\nmore\n", "|\n  bar\n  more"),]
     );
 }
 
@@ -107,11 +107,11 @@ fn test_literal() {
 fn test_block() {
     assert_eq!(
         deref_pairs(&run_parser_and_deref_scalar_spans("foo: >\n  bar").unwrap()),
-        [("foo", "foo"), ("bar\n", "bar"),]
+        [("foo", "foo"), ("bar\n", ">\n  bar"),]
     );
     assert_eq!(
         deref_pairs(&run_parser_and_deref_scalar_spans("foo: >\n  bar\n  more").unwrap()),
-        [("foo", "foo"), ("bar more\n", "bar\n  more"),]
+        [("foo", "foo"), ("bar more\n", ">\n  bar\n  more"),]
     );
 }
 
@@ -139,13 +139,13 @@ fn test_seq() {
 fn test_literal_utf8() {
     assert_eq!(
         deref_pairs(&run_parser_and_deref_scalar_spans("foo: |\n  你好").unwrap()),
-        [("foo", "foo"), ("你好\n", "你好"),]
+        [("foo", "foo"), ("你好\n", "|\n  你好"),]
     );
     assert_eq!(
         deref_pairs(&run_parser_and_deref_scalar_spans("foo: |\n  one:你好\n  two:你好").unwrap()),
         [
             ("foo", "foo"),
-            ("one:你好\ntwo:你好\n", "one:你好\n  two:你好"),
+            ("one:你好\ntwo:你好\n", "|\n  one:你好\n  two:你好"),
         ]
     );
 }
@@ -154,13 +154,13 @@ fn test_literal_utf8() {
 fn test_block_utf8() {
     assert_eq!(
         deref_pairs(&run_parser_and_deref_scalar_spans("foo: >\n  你好").unwrap()),
-        [("foo", "foo"), ("你好\n", "你好")],
+        [("foo", "foo"), ("你好\n", ">\n  你好")],
     );
     assert_eq!(
         deref_pairs(&run_parser_and_deref_scalar_spans("foo: >\n  one:你好\n  two:你好").unwrap()),
         [
             ("foo", "foo"),
-            ("one:你好 two:你好\n", "one:你好\n  two:你好")
+            ("one:你好 two:你好\n", ">\n  one:你好\n  two:你好")
         ],
     );
 }
@@ -225,4 +225,39 @@ fn test_marker_position() {
         (span.start.index(), span.start.line(), span.start.col()),
         (3, 1, 3)
     );
+}
+
+#[test]
+fn block_scalar_original_span_includes_header_and_chomping() {
+    for spelling in [
+        "|\n  bar",
+        ">-\n  bar\n  more",
+        "|2+\n  bar\n\n",
+        ">\n  é蟹\n",
+    ] {
+        let input = format!("foo: {spelling}");
+        let values = run_parser_and_deref_scalar_spans(&input).unwrap();
+        assert_eq!(
+            values[1].1, spelling,
+            "block scalar span must preserve the original header and modifiers"
+        );
+    }
+}
+
+#[test]
+fn block_scalar_tagged_and_anchored_spans_keep_their_original_properties() {
+    for spelling in [
+        "!!str |\n  bar",
+        "&anchor >-\n  bar",
+        "&a !!str |2\n  bar",
+        "|-",
+        "|+\n",
+    ] {
+        let input = format!("foo: {spelling}");
+        let values = run_parser_and_deref_scalar_spans(&input).unwrap();
+        assert_eq!(
+            values[1].1, spelling,
+            "properties and header are original source provenance"
+        );
+    }
 }
