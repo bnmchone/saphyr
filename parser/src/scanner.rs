@@ -2120,8 +2120,10 @@ impl<'input, T: Input> Scanner<'input, T> {
             }
         } // loop
 
-        // Eat the right quote.
+        // Eat the right quote. Trailing separation is checked below, but it
+        // belongs to the surrounding document rather than this scalar's span.
         self.skip_non_blank();
+        let end_mark = self.mark;
         // Ensure there is no invalid trailing content.
         self.skip_ws_to_eol(SkipTabs::Yes)?;
         match self.input.peek() {
@@ -2148,7 +2150,7 @@ impl<'input, T: Input> Scanner<'input, T> {
             ScalarStyle::DoubleQuoted
         };
         Ok(Token(
-            Span::new(start_mark, self.mark),
+            Span::new(start_mark, end_mark),
             TokenType::Scalar(style, string.into()),
         ))
     }

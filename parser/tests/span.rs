@@ -261,3 +261,62 @@ fn block_scalar_tagged_and_anchored_spans_keep_their_original_properties() {
         );
     }
 }
+
+#[test]
+fn quoted_scalar_original_spans_exclude_trailing_separation_and_comments() {
+    for (spelling, decoded, trailing) in [
+        (r#""bar""#, "bar", " \t # excluded comment\n"),
+        ("'bar'", "bar", " # excluded comment\n"),
+        (r#""é蟹""#, "é蟹", " \t# Unicode comment 蟹\r\n"),
+        (r#""""#, "", " # empty scalar, not comment text\n"),
+        (r#""a\"b""#, "a\"b", " # escaped quote\n"),
+        ("'it''s'", "it's", " # doubled quote\n"),
+        (r#"!!str &a "bar""#, "bar", " # tagged and anchored\n"),
+        (
+            "'multiline\n  text'",
+            "multiline text",
+            " # final comment\n",
+        ),
+        (r#""bar""#, "bar", " \t"),
+    ] {
+        let input = format!("foo: {spelling}{trailing}");
+        let values = run_parser_and_deref_scalar_spans(&input).unwrap();
+        assert_eq!(
+            values[1],
+            (decoded.to_owned(), spelling.to_owned()),
+            "a quoted scalar's original extent must stop at its closing quote"
+        );
+        let from_str: Vec<_> = Parser::new_from_str(&input).collect();
+        let from_iter: Vec<_> = Parser::new_from_iter(input.chars()).collect();
+        assert_eq!(
+            from_str, from_iter,
+            "both input APIs must report the same spans"
+        );
+    }
+}
+
+#[test]
+fn quoted_key_and_flow_value_spans_exclude_surrounding_trivia() {
+    for input in [
+        "'key' \t: 'value' \t # excluded\n",
+        "{ \"key\" \t: \"value\" \t }\n",
+        "[\"first\" \t, 'second' \t # excluded\n]\n",
+    ] {
+        let values = run_parser_and_deref_scalar_spans(input).unwrap();
+        let expected = if input.starts_with('[') {
+            vec![("first", "\"first\""), ("second", "'second'")]
+        } else if input.starts_with('{') {
+            vec![("key", "\"key\""), ("value", "\"value\"")]
+        } else {
+            vec![("key", "'key'"), ("value", "'value'")]
+        };
+        assert_eq!(deref_pairs(&values), expected);
+    }
+}
+
+#[test]
+fn quoted_span_fix_keeps_invalid_trailing_content_rejected() {
+    for input in ["foo: \"bar\"junk\n", "foo: 'bar'junk\n", "[\"bar\"junk]\n"] {
+        assert!(run_parser_and_deref_scalar_spans(input).is_err());
+    }
+}
